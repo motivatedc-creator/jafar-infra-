@@ -1,0 +1,64 @@
+# hermes-backup configuration (bash syntax; it is sourced by the scripts).
+#
+# Install:
+#   mkdir -p ~/.config/hermes-backup
+#   cp backup/config.example ~/.config/hermes-backup/config
+#   chmod 600 ~/.config/hermes-backup/config
+#
+# This file must NOT contain secrets. Cloud credentials live in rclone's own
+# config (~/.config/rclone/rclone.conf), which is never in this repository.
+# The scripts refuse to load this file if it is group/world writable.
+
+# --- Source ---------------------------------------------------------------------
+# User that owns Hermes and its home directory.
+HERMES_USER=dietpi
+HERMES_HOME=/home/dietpi/.hermes
+
+# Back up profiles/<name>/ with the same include rules as the main home.
+INCLUDE_PROFILES=yes
+
+# Extra paths (relative to HERMES_HOME and to each profile) to back up.
+# The backup log warns about unknown top-level entries: add them here if
+# they hold user data. Example: EXTRA_INCLUDE_PATHS=(my-notes plugins)
+EXTRA_INCLUDE_PATHS=()
+
+# Extra name patterns to exclude anywhere (GNU tar --exclude syntax).
+# Example: EXTRA_EXCLUDE_PATTERNS=('output' '*.mp4')
+EXTRA_EXCLUDE_PATTERNS=()
+
+# --- Local staging ------------------------------------------------------------------
+# Archives are written here first. Keep it on local disk, private (chmod 700).
+LOCAL_BACKUP_DIR=/home/dietpi/hermes-backups
+# How many local archives to keep (pruned only after a verified upload).
+LOCAL_KEEP=3
+
+# Logs, lock file and last-status markers.
+STATE_DIR=/home/dietpi/.local/state/hermes-backup
+
+# --- Off-box destination ------------------------------------------------------------
+# Backend = file backup/lib/backend-<name>.sh. Shipped: rclone, localdir.
+UPLOAD_BACKEND=rclone
+
+# rclone: "<remote-name>:<path>". The remote is created with `rclone config`
+# (README section 4.3). Recommended: a `crypt` remote named hermes-offsite
+# wrapping your provider remote, used at its root:
+# Changing provider = create a new remote and change this one line.
+RCLONE_REMOTE="hermes-offsite:"
+# Optional non-default rclone config file (leave empty for rclone's default).
+RCLONE_CONFIG_FILE=""
+# "download" = re-read the uploaded file and compare SHA-256 (strongest).
+# "size"     = only check the remote file exists with the right size.
+RCLONE_VERIFY=download
+# Extra rclone flags, e.g. (--bwlimit 2M) or (--drive-use-trash=false)
+RCLONE_EXTRA_FLAGS=()
+# Path to the rclone binary if it is not on PATH.
+RCLONE_BIN=rclone
+
+# localdir backend (mounted NAS share etc.):
+# UPLOAD_BACKEND=localdir
+# LOCALDIR_DEST=/mnt/nas/hermes-backups
+
+# Remote retention: keep the newest N archives from THIS host on the remote,
+# deleting older ones after each verified upload. 0 = never delete anything
+# remotely (default; prefer provider-side versioning/lifecycle rules).
+REMOTE_KEEP=0

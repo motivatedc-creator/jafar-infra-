@@ -1,0 +1,90 @@
+# ---------------------------------------------------------------------------
+# This repository may become public. Nothing below may ever be committed.
+# ---------------------------------------------------------------------------
+
+# --- Secrets & credentials -------------------------------------------------
+.env
+.env.*
+!.env.example
+*.env
+auth.json
+.anthropic_oauth.json
+google_token.json
+google_oauth*.json
+*_oauth.json
+credentials
+credentials.json
+token.json
+mcp-tokens/
+pairing/
+whatsapp/
+rclone.conf
+*.rclone.conf
+.netrc
+.git-credentials
+.pgpass
+*.pem
+*.key
+*.p12
+*.pfx
+*.kdbx
+id_rsa*
+id_ed25519*
+id_ecdsa*
+*.gpg
+*.asc
+secrets/
+*.secret
+*.secrets
+
+# --- Real (non-example) backup configuration --------------------------------
+# config.example is tracked; a filled-in copy must live in
+# ~/.config/hermes-backup/config, but never commit one if it lands here.
+backup/config
+backup/*.conf
+config.local
+*.local.sh
+
+# --- Backup artifacts & Hermes data -----------------------------------------
+hermes-backup-*.tar.gz
+hermes-backup-*.tar.gz.sha256
+*.tar.gz
+*.tgz
+*.tar
+*.partial
+.hb-work.*/
+.hermes-restore.*/
+*.pre-restore-*/
+hermes-backups/
+hermes-restore-downloads/
+.hermes/
+state.db
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+memories/
+sessions/
+
+# --- Logs, state, temp -------------------------------------------------------
+*.log
+*.log.*
+logs/
+*.lock
+*.pid
+*.tmp
+*.temp
+tmp/
+hermes-backup-test.*/
+hb-test.*/
+
+# --- Editors / OS --------------------------------------------------------------
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
