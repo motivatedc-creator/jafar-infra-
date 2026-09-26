@@ -61,12 +61,20 @@ download_backup() {
 prune_remote_backups() {
     local prefix="$1" keep="$2" total n name
     if ! is_uint "$keep" || (( keep < 1 )); then error "prune: KEEP must be >= 1"; return 1; fi
-    local -a names=()
+    local -a names=() valid_names=()
     mapfile -t names < <(list_remote_backups "$prefix")
-    total=${#names[@]}
+    for name in "${names[@]}"; do
+        if ! is_backup_archive_name "$name"; then
+            continue
+        fi
+        if [[ "$name" != "$prefix"* ]]; then
+            continue
+        fi
+        valid_names+=("$name")
+    done
+    total=${#valid_names[@]}
     for (( n = 0; n < total - keep; n++ )); do
-        name="${names[$n]}"
-        is_backup_archive_name "$name" && [[ "$name" == "$prefix"* ]] || continue
+        name="${valid_names[$n]}"
         info "localdir: pruning old backup ${name}"
         rm -f -- "${LOCALDIR_DEST}/${name}" "${LOCALDIR_DEST}/${name}.sha256"
     done

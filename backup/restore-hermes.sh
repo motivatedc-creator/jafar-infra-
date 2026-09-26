@@ -128,7 +128,7 @@ fi
 # --- state for cleanup / failure reporting ------------------------------------
 WORK_DIR="" WORK_PARENT="" SAFETY_DIR="" APPLYING=no
 RESTORED=() MOVED_ASIDE=()
-# shellcheck disable=SC2329  # invoked via trap
+# shellcheck disable=SC2317  # EXIT trap invokes this cleanup handler indirectly.
 on_exit() {
     local rc=$?
     if [[ "$APPLYING" == yes && $rc -ne 0 ]]; then
