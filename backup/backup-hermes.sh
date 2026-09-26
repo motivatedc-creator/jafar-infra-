@@ -63,7 +63,7 @@ touch -- "$LOG_FILE" && chmod 600 -- "$LOG_FILE"
 
 WORK_DIR=""
 RUN_STATUS="FAILED"
-# shellcheck disable=SC2329  # invoked via trap
+# shellcheck disable=SC2317  # EXIT trap invokes this cleanup handler indirectly.
 on_exit() {
     local rc=$?
     if [[ -n "$WORK_DIR" ]]; then
@@ -194,7 +194,11 @@ for pat in "${HB_SECRET_PATTERNS[@]}"; do
     FIND_SECRET_EXPR+=(-name "$pat")
 done
 
-stripped=$(cd -- "$HERMES_HOME" && find "${ITEMS[@]}" -mindepth 1 \( "${FIND_SECRET_EXPR[@]}" \) -prune -print 2>/dev/null || true)
+if cd -- "$HERMES_HOME"; then
+    stripped=$(find "${ITEMS[@]}" -mindepth 1 \( "${FIND_SECRET_EXPR[@]}" \) -prune -print 2>/dev/null || true)
+else
+    stripped=""
+fi
 if [[ -n "$stripped" ]]; then
     while IFS= read -r line; do info "Excluded (credential pattern): ${line}"; done <<<"$stripped"
 fi

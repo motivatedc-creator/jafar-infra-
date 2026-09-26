@@ -280,6 +280,28 @@ WW="${SANDBOX}/config-ww"; cp "$CFG" "$WW"; chmod 666 "$WW"
 check "world-writable config is refused (exit 2)" test $? -eq 2
 sleep 1; "$BACKUP" >/dev/null 2>&1; sleep 1; "$BACKUP" >/dev/null 2>&1
 check "local retention keeps LOCAL_KEEP=2 archives" test "$(find "${SANDBOX}/staging" -maxdepth 1 -name '*.tar.gz' | wc -l)" -eq 2
+
+section "12. Remote pruning rejects invalid names"
+PRUNE_DIR="${SANDBOX}/prune-remote"; mkdir -p "$PRUNE_DIR"
+for f in hermes-backup-host-20240101T000000Z.tar.gz hermes-backup-host-20240102T000000Z.tar.gz hermes-backup-host-20240103T000000Z.tar.gz; do
+    : >"${PRUNE_DIR}/${f}"
+done
+: >"${PRUNE_DIR}/hermes-backup-host-invalid.tar.gz"
+remote_prune_test() {
+    (
+        LOCALDIR_DEST="$1"
+        # shellcheck disable=SC1091  # runtime path resolves from the suite's discovered repository root.
+        source "${BK}/lib/common.sh"
+        # shellcheck disable=SC1091  # runtime path resolves from the suite's discovered repository root.
+        source "${BK}/lib/backend-localdir.sh"
+        prune_remote_backups hermes-backup-host- 1 &&
+            test ! -e "$LOCALDIR_DEST/hermes-backup-host-20240101T000000Z.tar.gz" &&
+            test ! -e "$LOCALDIR_DEST/hermes-backup-host-20240102T000000Z.tar.gz" &&
+            test -e "$LOCALDIR_DEST/hermes-backup-host-20240103T000000Z.tar.gz" &&
+            test -e "$LOCALDIR_DEST/hermes-backup-host-invalid.tar.gz"
+    )
+}
+check "remote pruning removes old valid archive but keeps newest and invalid names" remote_prune_test "$PRUNE_DIR"
 "$BACKUP" --config /nonexistent/config >/dev/null 2>&1
 check "missing explicit config exits 2" test $? -eq 2
 
