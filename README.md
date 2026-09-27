@@ -5,6 +5,7 @@ Infrastructure for Jafar — a headless Debian/DietPi server running
 
 | Directory | What |
 |---|---|
+| [`bootstrap/`](bootstrap/README.md) | #2 Rebuild-from-zero: one script turns a fresh DietPi into Jafar (`--dry-run`, `--from-step N`) |
 | [`backup/`](backup/README.md) | Disaster-recovery backup & restore of `~/.hermes`: nightly cron, validated archives, off-box upload via rclone (provider-agnostic), sandboxed test suite |
 
 Server facts: [`CONTEXT.md`](CONTEXT.md) and [`docs/hermes-facts.md`](docs/hermes-facts.md)

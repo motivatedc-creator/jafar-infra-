@@ -443,6 +443,9 @@ private (`go-rwx`); the executable bits of skill scripts are kept.
 
 ### Disaster-recovery runbook (dead SSD → working Hermes)
 
+`bootstrap/bootstrap.sh` (#2) automates these steps; see
+`bootstrap/README.md`. The manual version:
+
 1. Install DietPi/Debian on the new disk; make sure user `dietpi` exists.
 2. `sudo apt install -y git sqlite3 cron procps rclone` (or rclone's installer).
 3. Install Hermes Agent for `dietpi` following the official Hermes Agent

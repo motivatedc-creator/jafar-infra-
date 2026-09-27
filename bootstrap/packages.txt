@@ -1,0 +1,14 @@
+# apt packages for bootstrap step 1, one per line (# starts a comment).
+# Never add Docker, containerd, podman or OpenHands: bootstrap.sh refuses them.
+git
+curl
+jq
+sqlite3
+shellcheck
+rclone
+age
+xz-utils
+libatomic1
+dbus
+dbus-user-session
+libpam-systemd
