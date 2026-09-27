@@ -33,14 +33,15 @@ It never touches `~/.hermes`, `~/.config/hermes-backup` or your remotes.
 | 1 create | exit 0; archive + sidecar exist; modes 600/700; no scratch left; `last-status` OK; unknown top-level entry is warned about; sentinel never in logs |
 | 2 inspect | every expected file is in the archive (incl. profile data); `--inspect` works |
 | 3 secrets | none of ~30 secret/disposable paths are in the archive; **sentinel string appears in no archived file** |
-| 4 integrity | `gzip -t`; sidecar `sha256sum -c`; internal manifest; `state.db` snapshot has the data and no `-wal` |
+| 4 integrity | `gzip -t`; sidecar `sha256sum -c`; internal manifest; `state.db`/`kanban.db`/`shared-state.db` snapshots have the data and no `-wal` |
 | 5–6 upload | localdir backend copy exists and matches; rclone (`:local:` on-the-fly remote): `--check`, upload, archive + sidecar on the remote, `--list-remote` |
 | 7 download | `--fetch latest` downloads and validates; byte-identical to the original |
 | 8 restore | `--dry-run` creates nothing; restore into a temp target; 700/`go-rwx`; correct owner; exec bits kept; no `.env` created |
-| 9 compare | `diff -r` of every restored item vs. source (minus excluded names); SQLite `.dump` equality for both databases |
+| 9 compare | `diff -r` of every restored item vs. source (minus excluded names); SQLite `.dump` equality for `state.db`, `kanban.db`, `shared-state.db` and the profile's `state.db` |
 | 10 overwrite | refuses to replace existing data non-interactively without `--yes` (exit 6, nothing changed); with `--yes --only` replaces one item, old copy kept in `.pre-restore-*`; existing `.env` untouched |
 | 11 validation | corrupted archive → exit 5 and nothing created; `--require-checksum` without sidecar → 5; path-traversal and absolute-symlink archives → 5 |
-| 12 ops | concurrent run → 75; `--no-upload` → 3; world-writable config → 2; failed upload → 3 with `UPLOAD_FAILED`; local retention; missing config → 2 |
+| 12 ops | concurrent run → 75; `--no-upload` → 3; world-writable config → 2; failed upload → 3 with `UPLOAD_FAILED`; local retention; missing config → 2; remote pruning skips invalid archive names |
+| 13 large archive | regression test for a `restore-hermes.sh` validation bug: with a ~6000-file fake home, `restore --inspect` must exit 0, not falsely report a missing `hermes-backup/BACKUP_INFO`/`ITEMS`/`MANIFEST.sha256` |
 
 rclone tests are skipped (not failed) if rclone is not installed.
 
