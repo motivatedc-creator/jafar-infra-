@@ -35,6 +35,11 @@ hb_set_defaults() {
             sessions
             hooks
             state.db
+            # Durable, user/agent-created SQLite state that is not reconstructable
+            # from anything else in the backup (see backup/README.md for the
+            # evidence behind including these two):
+            kanban.db       # Kanban task board: tasks, boards, comments (default board only)
+            shared-state.db # Bot Mode "hosted rooms": durable group-chat room identity/membership
         )
     fi
     if ! declare -p EXTRA_INCLUDE_PATHS >/dev/null 2>&1; then
@@ -85,6 +90,12 @@ HB_KNOWN_EXCLUDED_TOPLEVEL=(
     hermes-agent hermes-office node bin venv .venv
     # caches, logs, scratch (regenerable)
     cache image_cache audio_cache document_cache logs sandboxes checkpoints
+    # kanban/ (the directory, not kanban.db the file): worker scratch
+    # workspaces (~/.hermes/kanban/workspaces/<id>/, ephemeral by design) plus
+    # any additional named boards (~/.hermes/kanban/boards/<slug>/kanban.db).
+    # Only the default board's top-level kanban.db is backed up today; a
+    # non-default board's tasks are NOT covered — see backup/README.md.
+    kanban
     # handled separately
     profiles state.db-wal state.db-shm state.db-journal
 )

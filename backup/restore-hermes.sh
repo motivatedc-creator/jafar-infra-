@@ -194,7 +194,12 @@ for s in "${SYMLINKS[@]}"; do
     done
 done
 for req in hermes-backup/BACKUP_INFO hermes-backup/ITEMS hermes-backup/MANIFEST.sha256; do
-    printf '%s\n' "${NAMES[@]}" | grep -Fxq -- "$req" || fail_validation "missing ${req}"
+    # Herestring, not a pipe: with `pipefail`, `printf ... | grep -q` can make
+    # grep exit (successfully) before printf finishes writing a large NAMES
+    # list, killing printf with SIGPIPE and failing the pipeline despite the
+    # entry being present. `names_raw` (the same tar listing, already
+    # captured) has no producer process for grep to race.
+    grep -Fxq -- "$req" <<<"$names_raw" || fail_validation "missing ${req}"
 done
 info "Archive structure OK (${#NAMES[@]} entries)"
 

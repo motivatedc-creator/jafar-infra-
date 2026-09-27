@@ -55,7 +55,8 @@ db_exec() {
 H="${SANDBOX}/home/.hermes"
 mkdir -p "$H"/{memories,skills/demo/scripts,skills/.hub,skills/demo/__pycache__,cron/output,sessions,hooks} \
          "$H"/{logs,cache,image_cache,mcp-tokens,pairing,whatsapp/session,hermes-agent,node,bin,auth} \
-         "$H"/profiles/work/{memories,skills,sessions} "$H"/mystery-dir
+         "$H"/profiles/work/{memories,skills,sessions} "$H"/mystery-dir \
+         "$H"/kanban/workspaces/w1 "$H"/kanban/boards/other
 printf 'model:\n  default: some/model\n' >"$H/config.yaml"
 printf '# Soul\nBe helpful.\n' >"$H/SOUL.md"
 printf 'env note\n' >"$H/memories/MEMORY.md"
@@ -73,6 +74,7 @@ printf 'work config\n' >"$H/profiles/work/config.yaml"
 printf 'work memory\n' >"$H/profiles/work/memories/MEMORY.md"
 printf 'work session\n' >"$H/profiles/work/sessions/s.json"
 printf 'mystery\n' >"$H/mystery-dir/file"
+printf 'scratch worker output\n' >"$H/kanban/workspaces/w1/scratch.txt"
 # Fake secrets, everywhere they could plausibly appear:
 for f in .env auth.json .anthropic_oauth.json google_token.json mcp-tokens/linear.json \
          pairing/telegram-approved.json whatsapp/session/creds.json auth/google_oauth.json \
@@ -83,6 +85,9 @@ for f in .env auth.json .anthropic_oauth.json google_token.json mcp-tokens/linea
 done
 db_exec "$H/state.db" "PRAGMA journal_mode=WAL; CREATE TABLE sessions(id TEXT, title TEXT); CREATE TABLE messages(sid TEXT, body TEXT); INSERT INTO sessions VALUES('s1','hello'); INSERT INTO messages VALUES('s1','hi there');"
 db_exec "$H/profiles/work/state.db" "CREATE TABLE t(x); INSERT INTO t VALUES(42);"
+db_exec "$H/kanban.db" "PRAGMA journal_mode=WAL; CREATE TABLE tasks(id TEXT, title TEXT); INSERT INTO tasks VALUES('t1','write the docs');"
+db_exec "$H/shared-state.db" "CREATE TABLE hosted_rooms(id TEXT, name TEXT); INSERT INTO hosted_rooms VALUES('r1','ops-room');"
+db_exec "$H/kanban/boards/other/kanban.db" "CREATE TABLE tasks(id TEXT); INSERT INTO tasks VALUES('other-board-task');"
 
 mkcfg() {  # mkcfg FILE BACKEND [extra lines...]
     local f="$1" backend="$2"; shift 2
@@ -124,6 +129,7 @@ check "staging dir mode is 700" test "$(stat -c %a "${SANDBOX}/staging")" = 700
 check "no scratch dirs left behind" test -z "$(find "${SANDBOX}/staging" -name '.hb-work.*')"
 check "last-status is OK" grep -q ' OK ' "${SANDBOX}/state/last-status"
 check "log warns about unknown top-level entry" grep -q 'unknown entry.*mystery-dir' "$LOG"
+check "log does not warn about kanban/ (known-excluded, not an unknown entry)" bash -c "! grep -qF -- '): kanban -' \"\$1\"" _ "$LOG"
 check "log does not contain the secret sentinel" bash -c "! grep -rq '$SENTINEL' '${SANDBOX}/state'"
 
 # --------------------------------------------------------------------------
@@ -132,19 +138,22 @@ LIST=$(tar -tzf "$A")
 for p in config.yaml SOUL.md memories/MEMORY.md memories/USER.md skills/demo/SKILL.md \
          skills/demo/scripts/run.sh cron/jobs.json cron/output/run1.md sessions/session_s1.json \
          hooks/on_start.sh state.db profiles/work/config.yaml profiles/work/memories/MEMORY.md \
-         profiles/work/state.db; do
+         profiles/work/state.db kanban.db shared-state.db; do
     check "archive contains ${p}" grep -Fxq "hermes-backup/home/${p}" <<<"$LIST"
 done
 "$RESTORE" --inspect "$A" >"${SANDBOX}/inspect.out" 2>&1
 check "restore --inspect succeeds" test $? -eq 0
 check "--inspect lists state.db" grep -q 'state.db' "${SANDBOX}/inspect.out"
+check "--inspect lists kanban.db" grep -q 'kanban.db' "${SANDBOX}/inspect.out"
+check "--inspect lists shared-state.db" grep -q 'shared-state.db' "${SANDBOX}/inspect.out"
 
 # --------------------------------------------------------------------------
 section "3. Excluded secrets and disposable data are absent"
 for p in .env auth.json .anthropic_oauth.json google_token.json mcp-tokens pairing whatsapp auth/ \
          logs/ cache/ image_cache/ hermes-agent/ node/ bin/ skills/.hub __pycache__ \
          skills/demo/.env credentials.json server.pem id_ed25519 profiles/work/.env \
-         profiles/work/auth.json .env.local state.db-wal state.db-shm mystery-dir; do
+         profiles/work/auth.json .env.local state.db-wal state.db-shm mystery-dir \
+         kanban/workspaces kanban/boards; do
     check "archive has no '${p}'" bash -c "! grep -Fq -- '/${p}' <<<\"\$1\"" _ "$LIST"
 done
 X="${SANDBOX}/extract"; mkdir -p "$X"; tar -C "$X" -xzf "$A"
@@ -158,6 +167,8 @@ check "internal manifest verifies" bash -c "cd '$X/hermes-backup' && sha256sum -
 if have sqlite3 || have python3; then
     check "snapshot state.db has the data" grep -q 'hi there' <(db_dump "$X/hermes-backup/home/state.db")
     check "snapshot state.db is self-contained (no -wal in archive)" bash -c "! grep -q 'state.db-wal' <<<\"\$1\"" _ "$LIST"
+    check "snapshot kanban.db has the data" grep -q 'write the docs' <(db_dump "$X/hermes-backup/home/kanban.db")
+    check "snapshot shared-state.db has the data" grep -q 'ops-room' <(db_dump "$X/hermes-backup/home/shared-state.db")
 fi
 
 # --------------------------------------------------------------------------
@@ -220,6 +231,9 @@ for it in config.yaml SOUL.md memories skills cron sessions hooks profiles/work/
 done
 check "identical data: state.db" cmp -s <(db_dump "$H/state.db") <(db_dump "$T/state.db")
 check "identical data: profiles/work/state.db" cmp -s <(db_dump "$H/profiles/work/state.db") <(db_dump "$T/profiles/work/state.db")
+check "identical data: kanban.db" cmp -s <(db_dump "$H/kanban.db") <(db_dump "$T/kanban.db")
+check "identical data: shared-state.db" cmp -s <(db_dump "$H/shared-state.db") <(db_dump "$T/shared-state.db")
+check "restore did not create kanban/ (workspaces/boards are not covered by this backup)" test ! -e "$T/kanban"
 
 # --------------------------------------------------------------------------
 section "10. Overwrite protection"
@@ -304,6 +318,41 @@ remote_prune_test() {
 check "remote pruning removes old valid archive but keeps newest and invalid names" remote_prune_test "$PRUNE_DIR"
 "$BACKUP" --config /nonexistent/config >/dev/null 2>&1
 check "missing explicit config exits 2" test $? -eq 2
+
+# --------------------------------------------------------------------------
+section "13. restore-hermes.sh required-entry check is pipefail-safe on a large archive"
+# Regression test for: `printf '%s\n' "${NAMES[@]}" | grep -Fxq -- "$req"` in
+# restore-hermes.sh. With `set -o pipefail`, grep -q can exit (successfully,
+# having found the match) before printf finishes writing a NAMES list bigger
+# than a pipe buffer, killing printf with SIGPIPE; the pipeline then reports
+# that nonzero status and restore-hermes.sh reports a false "missing
+# hermes-backup/BACKUP_INFO" validation failure even though the archive is
+# valid. A real Hermes install's sessions/skills easily produce enough tar
+# entries to hit this. Reproduced directly against restore-hermes.sh (not a
+# hand-built archive) using a fake home with 6000 session files, which
+# reliably overflows the pipe buffer before grep reaches the required names
+# (BACKUP_INFO/ITEMS/MANIFEST.sha256 sort before "home/..." in the listing).
+LARGE_H="${SANDBOX}/home-large/.hermes"
+mkdir -p "${LARGE_H}/sessions"
+printf 'model:\n  default: some/model\n' >"${LARGE_H}/config.yaml"
+printf '# Soul\n' >"${LARGE_H}/SOUL.md"
+for i in $(seq -w 1 6000); do
+    printf '{"id":"session_%s"}\n' "$i" >"${LARGE_H}/sessions/session_${i}.json"
+done
+LARGE_STAGING="${SANDBOX}/staging-large"; mkdir -p "$LARGE_STAGING"
+LARGE_CFG="${SANDBOX}/config-large"
+mkcfg "$LARGE_CFG" localdir "HERMES_HOME=${LARGE_H}" "LOCAL_BACKUP_DIR=${LARGE_STAGING}" \
+    "STATE_DIR=${SANDBOX}/state-large" "LOCAL_KEEP=1"
+"$BACKUP" --config "$LARGE_CFG" >/dev/null 2>&1
+check "backup of the large fake home exits 0" test $? -eq 0
+LARGE_A=$(find "$LARGE_STAGING" -maxdepth 1 -name 'hermes-backup-*.tar.gz' | sort | tail -n1)
+check "large archive exists" test -f "$LARGE_A"
+check "large archive has enough entries to exceed a pipe buffer (>6000)" \
+    bash -c "test \"\$(tar -tzf \"\$1\" | wc -l)\" -gt 6000" _ "$LARGE_A"
+"$RESTORE" --inspect "$LARGE_A" >"${SANDBOX}/inspect-large.out" 2>&1
+check "restore --inspect on the large archive exits 0 (would be 5 under the pipefail bug)" test $? -eq 0
+check "large-archive inspect reports no false 'missing hermes-backup/...' failure" \
+    bash -c "! grep -q 'missing hermes-backup/' \"\$1\"" _ "${SANDBOX}/inspect-large.out"
 
 # --------------------------------------------------------------------------
 printf '\nResult: %d passed, %d failed, %d skipped\n' "$PASS" "$FAIL" "$SKIP"

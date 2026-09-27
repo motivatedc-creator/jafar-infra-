@@ -65,6 +65,28 @@ Backed up — from `~/.hermes/` **and from every `~/.hermes/profiles/<name>/`**:
 | `sessions/` | session artifacts |
 | `hooks/` | user shell hooks |
 | `state.db` | SQLite: sessions, messages, full-text index. Captured with SQLite's online backup API (consistent while Hermes runs; WAL content included) and integrity-checked |
+| `kanban.db` | SQLite: the Kanban multi-agent task board — tasks, boards, comments, links. **Default board only**; see the note below. Same snapshot/integrity treatment as `state.db` |
+| `shared-state.db` | SQLite: Bot Mode "hosted rooms" — durable group-chat room identity, membership and disband state (introduced in Hermes v0.21.2, split out of `state.db` to avoid concurrent-writer corruption). Same snapshot/integrity treatment as `state.db` |
+
+`kanban.db` and `shared-state.db` are official Hermes-core files (not
+plugins), and each is created lazily — it only appears once you've actually
+used that feature. Both are documented as durable, not reconstructable from
+anything else Hermes keeps: the [Kanban reference](https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban)
+calls the board "a durable task board... every handoff is a row... an audit
+trail: durable rows in SQLite **forever**", and the
+[Bot Mode reference](https://hermes-agent.nousresearch.com/docs/user-guide/bot-mode)
+says a room "carries a durable internal identity" and that "room state lives
+in the install's root `shared-state.db`". If your install has never used
+Kanban or Bot Mode group chats, these files won't exist and are simply
+skipped — nothing to configure.
+
+**Kanban limitation:** only the **default board**'s `~/.hermes/kanban.db` is
+backed up. Additional named boards you create with `hermes kanban boards
+create <slug>` live at `~/.hermes/kanban/boards/<slug>/kanban.db` and are
+**not** covered — the `kanban/` directory (which also holds ephemeral worker
+workspaces) is deliberately excluded. If you use multiple boards, add the
+board's DB path to `EXTRA_INCLUDE_PATHS` yourself, e.g.
+`EXTRA_INCLUDE_PATHS=(kanban/boards/myproject/kanban.db)`.
 
 The list is `INCLUDE_PATHS` in `lib/common.sh`; add your own with
 `EXTRA_INCLUDE_PATHS` in the config. It is an **allowlist**: anything not
@@ -89,7 +111,19 @@ Deliberately **excluded**:
 | `whatsapp/` | WhatsApp session credentials | re-scan QR code |
 | `hermes-agent/`, `node/`, `bin/`, `venv/` | code and runtimes | reinstall Hermes |
 | `cache/`, `image_cache/`, `audio_cache/`, `document_cache/`, `sandboxes/`, `checkpoints/`, `logs/` | caches, scratch, logs | regenerated |
-| `state.db-wal`, `-shm`, `-journal` | folded into the snapshot | — |
+| `state.db-wal`, `-shm`, `-journal` (same for `kanban.db`, `shared-state.db`) | folded into the snapshot | — |
+| `kanban/` (the directory: `kanban/workspaces/`, `kanban/boards/`, `kanban/current`) | ephemeral worker scratch space, plus non-default boards | recreate boards/workspaces; see the Kanban limitation above |
+
+`tools/`, `installs/`, `environments/`, `lsp/`, `vault/`, and every lock
+file, PID file, socket and gateway runtime file (`*.lock`, `gateway.pid`,
+`gateway.sock`, `gateway_state.json`, `*.dispatch.lock`, `*.init.lock`, …)
+are excluded the same way as any other name not on the allowlist: they are
+simply never in `INCLUDE_PATHS`, so `backup-hermes.sh` never looks at them.
+That is also why they show up as `unknown entry` warnings in the log (as
+`kanban/` did before this change) — expected and safe, not a bug. `tools/`,
+`installs/` and `environments/` in particular can be very large (downloaded
+runtimes/toolchains); leaving them out of the allowlist is what keeps
+archives small, not a size cutoff.
 
 Inside the included directories, these names are also excluded anywhere
 (and the staged payload is re-scanned for them before archiving — a hit
@@ -103,7 +137,9 @@ aborts the run with exit 4): `.env`, `.env.*`, `*.env`, `auth.json`, `auth`,
 
 > ⚠️ **The archive is still sensitive.** `state.db`, `sessions/` and
 > `memories/` hold your conversation history — including anything you ever
-> pasted into a chat. Use an encrypted rclone remote (`crypt`, §4.3).
+> pasted into a chat. `kanban.db` holds task titles/bodies/comments, and
+> `shared-state.db` holds your Bot Mode room names and membership. Use an
+> encrypted rclone remote (`crypt`, §4.3).
 
 ---
 
@@ -401,9 +437,15 @@ it back from the `.pre-restore-*` directory.
   `cron/`, `sessions/`, `state.db`, `logs/`, `profiles/`, `mcp-tokens/`,
   `pairing/`, …). Versions add things; the unknown-entry warning is there so
   you notice. Check `backup.log` after the first run.
-- `state.db` is restored in rollback-journal mode; Hermes/SQLite can switch
-  it back to WAL on first open. Files under `sessions/` are copied as-is and
-  may be a few seconds apart from `state.db` if Hermes is busy at 03:17.
+- `state.db`, `kanban.db` and `shared-state.db` are restored in
+  rollback-journal mode; Hermes/SQLite can switch them back to WAL on first
+  open. Files under `sessions/` are copied as-is and may be a few seconds
+  apart from `state.db` if Hermes is busy at 03:17.
+- `kanban.db`/`shared-state.db` inclusion is based on Hermes's own published
+  docs (Kanban and Bot Mode reference pages) describing them as durable,
+  official-core state, not on inspection of a specific install's file
+  contents. Only the default Kanban board is covered — see §2 for
+  multi-board setups.
 - `cron/output/` is included (can grow); exclude it with
   `EXTRA_EXCLUDE_PATTERNS=('output')` if you don't need job output history.
 - Repo location `/home/dietpi/jafar-infra-` is an assumption; the scripts
