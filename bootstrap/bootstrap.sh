@@ -69,6 +69,14 @@ done
 ME="$(id -un)"
 MY_UID="$(id -u)"
 USER_BUS="${BOOTSTRAP_USER_BUS:-/run/user/${MY_UID}/bus}"
+# `systemctl --user` (and the hermes CLI's own gateway calls) need these two
+# variables to find the user session bus. An interactive SSH login usually
+# gets them from pam_systemd, but a script should not rely on that: cron,
+# some SSH clients/panes, and non-login shells don't set them. Since linger
+# is enabled (step 3), the bus socket exists at a fixed path independent of
+# any login session, so it is safe to point at it explicitly.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/${MY_UID}}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${USER_BUS}}"
 
 TMP=""
 cleanup() {
