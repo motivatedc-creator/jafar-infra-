@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 source "${SCRIPT_DIR}/lib/common.sh"
 
 TAG="# hermes-backup:managed"
-SCHEDULE="17 3 * * *"
+SCHEDULE="30 3 * * *"
 ACTION=install
 CONFIG_ARG=""
 
@@ -21,7 +21,8 @@ usage() {
     cat <<'EOF'
 Usage: install-cron.sh [--schedule "M H DOM MON DOW"] [--config FILE] [--print | --remove]
 
-  (default)    install or update the nightly job (default schedule 03:17 daily)
+  (default)    install or update the nightly job (default schedule 03:30 daily,
+               server clock, which is UTC on Jafar's server)
   --print      only print the crontab line that would be installed
   --remove     remove the managed line from your crontab
 EOF

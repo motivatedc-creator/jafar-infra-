@@ -28,22 +28,22 @@ EXTRA_EXCLUDE_PATTERNS=()
 
 # --- Local staging ------------------------------------------------------------------
 # Archives are written here first. Keep it on local disk, private (chmod 700).
-LOCAL_BACKUP_DIR=/home/dietpi/hermes-backups
+LOCAL_BACKUP_DIR="${HOME}/hermes-backups"
 # How many local archives to keep (pruned only after a verified upload).
-LOCAL_KEEP=3
+LOCAL_KEEP=7
 
 # Logs, lock file and last-status markers.
-STATE_DIR=/home/dietpi/.local/state/hermes-backup
+STATE_DIR="${HOME}/.local/state/hermes-backup"
 
 # --- Off-box destination ------------------------------------------------------------
 # Backend = file backup/lib/backend-<name>.sh. Shipped: rclone, localdir.
 UPLOAD_BACKEND=rclone
 
 # rclone: "<remote-name>:<path>". The remote is created with `rclone config`
-# (README section 4.3). Recommended: a `crypt` remote named hermes-offsite
-# wrapping your provider remote, used at its root:
+# (README section 4.3). Jafar's server uses the crypt remote jafar-encrypted
+# (wrapping the gdrive remote), at its root.
 # Changing provider = create a new remote and change this one line.
-RCLONE_REMOTE="hermes-offsite:"
+RCLONE_REMOTE="jafar-encrypted:"
 # Optional non-default rclone config file (leave empty for rclone's default).
 RCLONE_CONFIG_FILE=""
 # "download" = re-read the uploaded file and compare SHA-256 (strongest).
@@ -60,5 +60,5 @@ RCLONE_BIN=rclone
 
 # Remote retention: keep the newest N archives from THIS host on the remote,
 # deleting older ones after each verified upload. 0 = never delete anything
-# remotely (default; prefer provider-side versioning/lifecycle rules).
-REMOTE_KEEP=0
+# remotely. Jafar's server keeps 30.
+REMOTE_KEEP=30

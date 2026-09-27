@@ -128,7 +128,7 @@ fi
 # --- state for cleanup / failure reporting ------------------------------------
 WORK_DIR="" WORK_PARENT="" SAFETY_DIR="" APPLYING=no
 RESTORED=() MOVED_ASIDE=()
-# shellcheck disable=SC2317  # EXIT trap invokes this cleanup handler indirectly.
+# shellcheck disable=SC2317,SC2329  # EXIT trap invokes this cleanup handler indirectly.
 on_exit() {
     local rc=$?
     if [[ "$APPLYING" == yes && $rc -ne 0 ]]; then
@@ -317,7 +317,7 @@ if [[ "$(canon "$TARGET")" == "$(canon "$(live_home)")" || "$(canon "$TARGET")" 
 fi
 if command -v pgrep >/dev/null 2>&1; then
     running=$(pgrep -a -u "$OWNER" -f hermes 2>/dev/null \
-        | grep -Ev '(restore|backup)-hermes\.sh' | grep -v "^$$ " || true)
+        | grep -Ev '(restore|backup)-hermes\.sh|hermes-(restore|backup)\.sh' | grep -v "^$$ " || true)
     if [[ -n "$running" ]]; then
         warn "Processes that look like Hermes are running as ${OWNER}:"
         while IFS= read -r l; do warn "  ${l}"; done <<<"$running"
