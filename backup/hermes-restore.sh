@@ -31,6 +31,11 @@ export LC_ALL=C
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 GATEWAY_UNIT=hermes-gateway
+# See the matching comment in bootstrap/bootstrap.sh: systemctl --user needs
+# these set explicitly, since not every shell that runs this script got them
+# from a login session (e.g. cron, or being called from another script).
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR}/bus}"
 
 usage() { sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 

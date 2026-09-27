@@ -100,6 +100,11 @@ cat >"$BIN/systemctl" <<'SH'
 echo "$*" >>"$FAKE_STATE/systemctl.log"
 S="$FAKE_STATE"
 case "$*" in
+    "--user"*)
+        [ -n "$XDG_RUNTIME_DIR" ] && [ -n "$DBUS_SESSION_BUS_ADDRESS" ] \
+            || echo "$*" >>"$FAKE_STATE/systemctl-no-dbus-env.log" ;;
+esac
+case "$*" in
     "is-enabled systemd-logind") cat "$S/logind.enabled" ;;
     "is-active systemd-logind") a=$(cat "$S/logind.active"); echo "$a"; [ "$a" = active ] ;;
     "unmask systemd-logind") echo static >"$S/logind.enabled" ;;
@@ -305,6 +310,14 @@ SH
 bs --dry-run --from-step 9
 check "an install.sh that rejects --dry-run is reported as would run" has "$OUT" "watchdog/install.sh: would run"
 item_stub "$REPO/watchdog/install.sh" watchdog; chmod 755 "$REPO/watchdog/install.sh"
+
+section "8b. systemctl --user works even without an ambient dbus session"
+rm -f "$ST/systemctl-no-dbus-env.log"
+OUT=$(env -u XDG_RUNTIME_DIR -u DBUS_SESSION_BUS_ADDRESS HOME="$HOMEDIR" PATH="${BIN}:${PATH}" \
+      FAKE_STATE="$ST" FAKE_BIN="$BIN" BOOTSTRAP_USER_BUS="$ST/run/bus" \
+      bash "$BS" --dry-run </dev/null 2>&1); RC=$?
+check "runs fine with no XDG_RUNTIME_DIR/DBUS_SESSION_BUS_ADDRESS in the caller's env" test "$RC" -eq 0
+check "every systemctl --user call still had both variables set" test ! -e "$ST/systemctl-no-dbus-env.log"
 
 section "9. Guards: root, bad arguments, Docker in packages.txt"
 FAKE_UID=0 bs --dry-run
