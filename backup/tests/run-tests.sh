@@ -75,6 +75,9 @@ printf 'work memory\n' >"$H/profiles/work/memories/MEMORY.md"
 printf 'work session\n' >"$H/profiles/work/sessions/s.json"
 printf 'mystery\n' >"$H/mystery-dir/file"
 printf 'scratch worker output\n' >"$H/kanban/workspaces/w1/scratch.txt"
+# Hermes' own advisory lock files (excluded) next to a real skill lockfile (kept):
+: >"$H/memories/MEMORY.md.lock"; : >"$H/skills/.usage.json.lock"; : >"$H/cron/.jobs.lock"
+printf 'version = 1\n' >"$H/skills/demo/uv.lock"
 # Fake secrets, everywhere they could plausibly appear:
 for f in .env auth.json .anthropic_oauth.json google_token.json mcp-tokens/linear.json \
          pairing/telegram-approved.json whatsapp/session/creds.json auth/google_oauth.json \
@@ -138,7 +141,7 @@ LIST=$(tar -tzf "$A")
 for p in config.yaml SOUL.md memories/MEMORY.md memories/USER.md skills/demo/SKILL.md \
          skills/demo/scripts/run.sh cron/jobs.json cron/output/run1.md sessions/session_s1.json \
          hooks/on_start.sh state.db profiles/work/config.yaml profiles/work/memories/MEMORY.md \
-         profiles/work/state.db kanban.db shared-state.db; do
+         profiles/work/state.db kanban.db shared-state.db skills/demo/uv.lock; do
     check "archive contains ${p}" grep -Fxq "hermes-backup/home/${p}" <<<"$LIST"
 done
 "$RESTORE" --inspect "$A" >"${SANDBOX}/inspect.out" 2>&1
@@ -153,7 +156,7 @@ for p in .env auth.json .anthropic_oauth.json google_token.json mcp-tokens pairi
          logs/ cache/ image_cache/ hermes-agent/ node/ bin/ skills/.hub __pycache__ \
          skills/demo/.env credentials.json server.pem id_ed25519 profiles/work/.env \
          profiles/work/auth.json .env.local state.db-wal state.db-shm mystery-dir \
-         kanban/workspaces kanban/boards; do
+         kanban/workspaces kanban/boards MEMORY.md.lock .usage.json.lock .jobs.lock; do
     check "archive has no '${p}'" bash -c "! grep -Fq -- '/${p}' <<<\"\$1\"" _ "$LIST"
 done
 X="${SANDBOX}/extract"; mkdir -p "$X"; tar -C "$X" -xzf "$A"
@@ -225,7 +228,8 @@ check "restore did not create .env" test ! -e "$T/.env"
 
 # --------------------------------------------------------------------------
 section "9. Compare restored data with the source"
-EXCL=(-x .env -x '.env.*' -x .hub -x __pycache__ -x credentials.json -x server.pem -x id_ed25519 -x auth.json -x 'state.db*')
+EXCL=(-x .env -x '.env.*' -x .hub -x __pycache__ -x credentials.json -x server.pem -x id_ed25519 -x auth.json -x 'state.db*'
+      -x '*.md.lock' -x '*.json.lock' -x '.*.lock')
 for it in config.yaml SOUL.md memories skills cron sessions hooks profiles/work/config.yaml profiles/work/memories profiles/work/sessions; do
     check "identical: ${it}" diff -r "${EXCL[@]}" "$H/$it" "$T/$it"
 done
@@ -353,6 +357,111 @@ check "large archive has enough entries to exceed a pipe buffer (>6000)" \
 check "restore --inspect on the large archive exits 0 (would be 5 under the pipefail bug)" test $? -eq 0
 check "large-archive inspect reports no false 'missing hermes-backup/...' failure" \
     bash -c "! grep -q 'missing hermes-backup/' \"\$1\"" _ "${SANDBOX}/inspect-large.out"
+
+# --------------------------------------------------------------------------
+# Stubs for sections 14-15: crontab and systemctl write to sandbox files, so
+# install.sh/uninstall.sh and the gateway handling never touch the real ones.
+STUB="${SANDBOX}/stubbin"; mkdir -p "$STUB"
+cat >"${STUB}/crontab" <<'SH'
+#!/bin/sh
+f="${FAKE_CRONTAB:?}"
+case "$1" in
+    -l) if [ -f "$f" ]; then cat "$f"; else echo "no crontab for user" >&2; exit 1; fi ;;
+    -r) rm -f "$f" ;;
+    -)  cat >"$f" ;;
+    *)  echo "stub crontab: unsupported $*" >&2; exit 2 ;;
+esac
+SH
+cat >"${STUB}/systemctl" <<'SH'
+#!/bin/sh
+echo "$*" >>"${FAKE_SYSTEMCTL_LOG:?}"
+case "$*" in
+    *is-active*) [ -f "${FAKE_GATEWAY_ACTIVE:?}" ] ;;
+    *" stop "*) rm -f "$FAKE_GATEWAY_ACTIVE" ;;
+    *" start "*) : >"$FAKE_GATEWAY_ACTIVE" ;;
+esac
+SH
+chmod 755 "${STUB}/crontab" "${STUB}/systemctl"
+FH="${SANDBOX}/fakehome"; mkdir -p "$FH"
+export FAKE_CRONTAB="${SANDBOX}/fake.crontab" FAKE_SYSTEMCTL_LOG="${SANDBOX}/systemctl.log" \
+       FAKE_GATEWAY_ACTIVE="${SANDBOX}/gateway.active"
+in_fakehome() { env -u HERMES_BACKUP_CONFIG HOME="$FH" PATH="${STUB}:${PATH}" "$@"; }
+
+section "14. backup/install.sh and uninstall.sh: --dry-run and idempotency"
+if [[ "$(id -u)" == 0 ]]; then
+    skip "install.sh/uninstall.sh refuse root by design; run the suite as dietpi to cover this section"
+else
+printf '0 1 * * * echo keep-me\n' >"$FAKE_CRONTAB"
+out=$(in_fakehome "${BK}/install.sh" --dry-run 2>&1)
+check "install --dry-run exits 0" test $? -eq 0
+check "install --dry-run says 'would run' for config" grep -q 'config  would run' <<<"$out"
+check "install --dry-run says 'would run' for cron" grep -q 'cron    would run' <<<"$out"
+check "install --dry-run created no config" test ! -e "${FH}/.config/hermes-backup/config"
+check "install --dry-run left the crontab alone" test "$(cat "$FAKE_CRONTAB")" = '0 1 * * * echo keep-me'
+in_fakehome "${BK}/install.sh" >/dev/null 2>&1
+check "install exits 0" test $? -eq 0
+check "install created the config with mode 600" test "$(stat -c %a "${FH}/.config/hermes-backup/config" 2>/dev/null)" = 600
+check "install added the 03:30 managed cron line" grep -qE "^30 3 \* \* \* nice -n 10 ${BK}/backup-hermes.sh .*# hermes-backup:managed$" "$FAKE_CRONTAB"
+check "install kept the existing crontab line" grep -qx '0 1 \* \* \* echo keep-me' "$FAKE_CRONTAB"
+cp "$FAKE_CRONTAB" "${SANDBOX}/crontab.after-install"
+out=$(in_fakehome "${BK}/install.sh" --dry-run 2>&1)
+check "dry-run after install: nothing says 'would run'" bash -c "! grep -q 'would run' <<<\"\$1\"" _ "$out"
+check "dry-run after install: config already done" grep -q 'config  already done' <<<"$out"
+check "dry-run after install: cron already done" grep -q 'cron    already done' <<<"$out"
+out=$(in_fakehome "${BK}/install.sh" 2>&1)
+check "second install reports already done" grep -q 'cron    already done' <<<"$out"
+check "second install left the crontab byte-identical" cmp -s "$FAKE_CRONTAB" "${SANDBOX}/crontab.after-install"
+check "exactly one managed line" test "$(grep -c 'hermes-backup:managed' "$FAKE_CRONTAB")" -eq 1
+out=$(in_fakehome "${BK}/uninstall.sh" --dry-run 2>&1)
+check "uninstall --dry-run says 'would run'" grep -q 'would run' <<<"$out"
+check "uninstall --dry-run left the crontab alone" cmp -s "$FAKE_CRONTAB" "${SANDBOX}/crontab.after-install"
+in_fakehome "${BK}/uninstall.sh" >/dev/null 2>&1
+check "uninstall removed the managed line" bash -c "! grep -q 'hermes-backup:managed' \"\$1\"" _ "$FAKE_CRONTAB"
+check "uninstall kept the other crontab line" grep -qx '0 1 \* \* \* echo keep-me' "$FAKE_CRONTAB"
+check "uninstall kept the config" test -f "${FH}/.config/hermes-backup/config"
+out=$(in_fakehome "${BK}/uninstall.sh" 2>&1)
+check "second uninstall reports already done" grep -q 'already done' <<<"$out"
+fi
+
+section "15. hermes-restore.sh (plan interface): latest, --force, gateway handling"
+HR="${BK}/hermes-restore.sh"
+W="${SANDBOX}/wrap/.hermes"; mkdir -p "$(dirname "$W")"
+"$HR" latest --dry-run --target "$W" --download-dir "${SANDBOX}/wrap-dl" >/dev/null 2>&1
+check "latest --dry-run exits 0" test $? -eq 0
+check "latest --dry-run created nothing in the target" test ! -e "$W"
+"$HR" latest --target "$W" --download-dir "${SANDBOX}/wrap-dl" </dev/null >/dev/null 2>&1
+check "latest restores into an empty target" test $? -eq 0
+# "latest" is whichever archive is newest off-box; compare against that archive.
+LATEST_SOUL="${SANDBOX}/latest-SOUL.md"
+tar -xzOf "$(find "${SANDBOX}/wrap-dl" -name 'hermes-backup-*.tar.gz' | sort | tail -n1)" hermes-backup/home/SOUL.md >"$LATEST_SOUL"
+check "restored SOUL.md matches the latest archive" cmp -s "$LATEST_SOUL" "$W/SOUL.md"
+check "latest was downloaded into --download-dir" test -n "$(find "${SANDBOX}/wrap-dl" -name 'hermes-backup-*.tar.gz')"
+printf 'LOCAL EDIT\n' >"$W/SOUL.md"
+"$HR" latest --target "$W" --download-dir "${SANDBOX}/wrap-dl" </dev/null >/dev/null 2>&1; rc=$?
+check "non-empty target without --force is refused (exit 6)" test "$rc" -eq 6
+check "refused restore changed nothing" grep -q 'LOCAL EDIT' "$W/SOUL.md"
+"$HR" latest --force --target "$W" --download-dir "${SANDBOX}/wrap-dl" </dev/null >/dev/null 2>&1
+check "--force restores over existing data" cmp -s "$LATEST_SOUL" "$W/SOUL.md"
+check "--force kept the old SOUL.md in .pre-restore-*" \
+    bash -c "grep -q 'LOCAL EDIT' \"\$1\".pre-restore-*/SOUL.md" _ "$W"
+# Live target (~/.hermes of a fake HOME): the gateway is stopped and restarted.
+mkdir -p "${FH}/.hermes"; printf 'old soul\n' >"${FH}/.hermes/SOUL.md"
+: >"$FAKE_SYSTEMCTL_LOG"; : >"$FAKE_GATEWAY_ACTIVE"
+env HOME="$FH" PATH="${STUB}:${PATH}" "$HR" latest --force --download-dir "${SANDBOX}/wrap-dl" </dev/null >/dev/null 2>&1
+check "--force into live ~/.hermes exits 0" test $? -eq 0
+check "gateway was stopped before the restore" grep -q -- '--user stop hermes-gateway' "$FAKE_SYSTEMCTL_LOG"
+check "gateway was started again afterwards" grep -q -- '--user start hermes-gateway' "$FAKE_SYSTEMCTL_LOG"
+check "gateway is active at the end" test -f "$FAKE_GATEWAY_ACTIVE"
+check "live ~/.hermes was restored" cmp -s "$LATEST_SOUL" "${FH}/.hermes/SOUL.md"
+: >"$FAKE_SYSTEMCTL_LOG"; : >"$FAKE_GATEWAY_ACTIVE"
+env HOME="$FH" PATH="${STUB}:${PATH}" "$HR" "${SANDBOX}/does-not-exist.tar.gz" --force </dev/null >/dev/null 2>&1; rc=$?
+check "failed restore exits non-zero" test "$rc" -ne 0
+check "gateway is restarted even when the restore fails" test -f "$FAKE_GATEWAY_ACTIVE"
+: >"$FAKE_SYSTEMCTL_LOG"
+env HOME="$FH" PATH="${STUB}:${PATH}" "$HR" latest --dry-run --download-dir "${SANDBOX}/wrap-dl" </dev/null >/dev/null 2>&1
+check "--dry-run never stops the gateway" bash -c "! grep -q -- 'stop' \"\$1\"" _ "$FAKE_SYSTEMCTL_LOG"
+check "hermes-backup.sh is an alias of backup-hermes.sh" \
+    bash -c "\"\$1\" --no-upload >/dev/null 2>&1; test \$? -eq 3" _ "${BK}/hermes-backup.sh"
 
 # --------------------------------------------------------------------------
 printf '\nResult: %d passed, %d failed, %d skipped\n' "$PASS" "$FAIL" "$SKIP"

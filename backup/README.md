@@ -6,16 +6,42 @@ restore tool for rebuilding the machine after the SSD dies.
 
 ```
 backup/
+  install.sh              install item #1: config + nightly cron (--dry-run)
+  uninstall.sh            remove the cron job; keeps config and backups (--dry-run)
+  test.sh                 live check: real backup + restore drill, PASS/FAIL
+  README.md               this file
+  hermes-backup.sh        plan name for backup-hermes.sh (same thing)
+  hermes-restore.sh       plan interface: <archive|latest> [--target] [--force]
   backup-hermes.sh        create → validate → upload → verify (run by cron)
-  restore-hermes.sh       inspect / dry-run / restore an archive
-  install-cron.sh         install/remove the nightly cron job (as dietpi)
-  config.example          copy to ~/.config/hermes-backup/config
+  restore-hermes.sh       inspect / dry-run / restore an archive (full options)
+  install-cron.sh         install/remove the nightly cron job (used by install.sh)
+  config.example          the server's settings; install.sh copies it to
+                          ~/.config/hermes-backup/config
   lib/common.sh           shared helpers (logging, config, safety checks)
   lib/backend-rclone.sh   off-box backend: any rclone remote (reference)
   lib/backend-localdir.sh off-box backend: mounted NAS share / directory
   tests/run-tests.sh      sandboxed end-to-end test suite
   TESTING.md              manual + automated test procedure
 ```
+
+### Quick start (the plan's install ritual)
+
+One command per line, as `dietpi`, from the repo on the server:
+
+```bash
+cd ~/jafar-infra- && git pull
+bash backup/install.sh --dry-run
+bash backup/install.sh
+bash backup/test.sh
+```
+
+- `install.sh` prints `already done`, `done` or (with `--dry-run`) `would run`
+  for each step, so running it twice changes nothing.
+- `test.sh` runs one real backup (uploaded and verified off-box), restores the
+  newest off-box archive into a temporary folder, compares it, and deletes the
+  folder. Every line must say `PASS`. `bash backup/test.sh --sandbox` runs the
+  offline suite instead (fake data, no upload).
+- Restore, plan style: `bash backup/hermes-restore.sh latest --force` (§6).
 
 ---
 
@@ -228,9 +254,14 @@ Run `rclone config` **as `dietpi`** (the config is per-user, in
 Then in `~/.config/hermes-backup/config`:
 
 ```bash
-RCLONE_REMOTE="hermes-offsite:"            # crypt remote root, or
-# RCLONE_REMOTE="hermes-offsite:nightly"   # a sub-folder inside it
+RCLONE_REMOTE="jafar-encrypted:"            # crypt remote root (Jafar's server), or
+# RCLONE_REMOTE="jafar-encrypted:nightly"   # a sub-folder inside it
 ```
+
+**On Jafar's server** the provider remote is `gdrive:` and the crypt remote
+wrapping it is `jafar-encrypted:`, used at its root. That is what
+`config.example` (and therefore `install.sh`) sets. The steps above use
+`offsite-raw`/`hermes-offsite` as generic example names.
 
 Unencrypted is possible (`RCLONE_REMOTE="offsite-raw:hermes-backups"`) but
 then your provider can read your conversation history.
@@ -247,7 +278,7 @@ repository directory altogether.
 
 ```bash
 rclone lsd offsite-raw:                                # provider login works
-rclone mkdir hermes-offsite: && rclone lsf hermes-offsite:
+rclone mkdir jafar-encrypted: && rclone lsf jafar-encrypted:
 ~/jafar-infra-/backup/backup-hermes.sh --check         # uses your config; exit 0 = OK
 ~/jafar-infra-/backup/backup-hermes.sh                 # first real backup
 echo $?                                                # must be 0
@@ -256,7 +287,7 @@ echo $?                                                # must be 0
 ### 4.5 Verify an archive really exists off-box
 
 ```bash
-rclone lsl hermes-offsite:                              # names, sizes, dates
+rclone lsl jafar-encrypted:                             # names, sizes, dates
 ~/jafar-infra-/backup/restore-hermes.sh --list-remote   # same, via the backend
 # download the newest one, verify checksum + manifest + SQLite, change nothing:
 ~/jafar-infra-/backup/restore-hermes.sh --fetch latest --inspect
@@ -273,18 +304,22 @@ if the archives grow large and bandwidth is metered.
 ### 4.6 Schedule it (cron, as `dietpi`)
 
 ```bash
-~/jafar-infra-/backup/install-cron.sh --print   # show the line first
-~/jafar-infra-/backup/install-cron.sh           # install (idempotent)
+bash ~/jafar-infra-/backup/install.sh --dry-run   # show what would change
+bash ~/jafar-infra-/backup/install.sh             # config + cron (idempotent)
 crontab -l
 ```
+
+(`install.sh` calls `install-cron.sh --schedule "30 3 * * *"`; you can also
+call `install-cron.sh --print` / `--schedule` directly.)
 
 The exact entry installed (for the assumed paths):
 
 ```
-17 3 * * * nice -n 10 /home/dietpi/jafar-infra-/backup/backup-hermes.sh >>/home/dietpi/.local/state/hermes-backup/logs/cron.log 2>&1 # hermes-backup:managed
+30 3 * * * nice -n 10 /home/dietpi/jafar-infra-/backup/backup-hermes.sh >>/home/dietpi/.local/state/hermes-backup/logs/cron.log 2>&1 # hermes-backup:managed
 ```
 
-- Runs daily at 03:17 **server local time**, as `dietpi`, no sudo.
+- Runs daily at 03:30 **server clock time**, as `dietpi`, no sudo. Jafar's
+  server clock is UTC, so that is 07:30 in Dubai.
   Change with `--schedule "M H DOM MON DOW"`; use `--config FILE` for a
   non-default config path.
 - The installer refuses to run as root, saves your previous crontab to
@@ -298,7 +333,7 @@ The exact entry installed (for the assumed paths):
 **Disable / remove:**
 
 ```bash
-~/jafar-infra-/backup/install-cron.sh --remove   # removes only the managed line
+bash ~/jafar-infra-/backup/uninstall.sh          # removes only the managed line
 # or temporarily: crontab -e and put '#' in front of the line
 ```
 
@@ -350,11 +385,11 @@ backend refuses a destination on the same filesystem as `~/.hermes`), or add
 
 ### Retention
 
-- Local: newest `LOCAL_KEEP` (default 3) archives in `LOCAL_BACKUP_DIR`,
+- Local: newest `LOCAL_KEEP` (7 in `config.example`) archives in `LOCAL_BACKUP_DIR`,
   pruned only after a verified upload. Failed runs never prune.
-- Remote: nothing is deleted unless you set `REMOTE_KEEP=N`, which keeps the
-  newest N archives **of this host** (strict name match, one file at a time).
-  Provider-side versioning / lifecycle rules are the safer choice.
+- Remote: nothing is deleted unless `REMOTE_KEEP=N` is set (30 in
+  `config.example`), which keeps the newest N archives **of this host**
+  (strict name match, one file at a time).
 
 ---
 
@@ -366,6 +401,28 @@ the sidecar checksum, gzip stream, every entry name/type (no absolute paths,
 `..`, device files, absolute symlinks or entries below symlinks), the per-file
 SHA-256 manifest and SQLite `integrity_check`. Only items recorded in the
 archive are touched; `.env`, tokens etc. in the target are left alone.
+
+**Plan interface** (`hermes-restore.sh`, used by bootstrap #2 and update #4):
+
+```bash
+H=~/jafar-infra-/backup/hermes-restore.sh
+$H latest --dry-run                      # newest off-box archive: show the plan
+$H latest --force                        # restore it into ~/.hermes
+$H ARCHIVE.tar.gz --target /tmp/x/.hermes   # somewhere else
+```
+
+- `latest` = newest archive on the remote (downloaded to
+  `~/hermes-restore-downloads/`, or `--download-dir DIR`).
+- Without `--force`, a restore that would replace existing items is refused
+  (exit 6). With `--force` those items are **moved** to
+  `~/.hermes.pre-restore-<ts>/` — per item, not the whole folder, so `.env`
+  and login files already in `~/.hermes` stay in place.
+- Into the live `~/.hermes` with `--force`, a running `hermes-gateway` is
+  stopped first and started again afterwards, even if the restore fails.
+- On a fresh machine with no `~/.config/hermes-backup/config`, the repo's
+  `config.example` is used.
+
+**Full options** (`restore-hermes.sh`):
 
 ```bash
 R=~/jafar-infra-/backup/restore-hermes.sh
@@ -406,7 +463,7 @@ private (`go-rwx`); the executable bits of skill scripts are kept.
    - MCP OAuth — `hermes mcp login <server>`; Google Workspace re-auth;
    - messaging: WhatsApp QR re-pair, DM pairing approvals.
 9. Start Hermes; check memories, skills, sessions and Hermes cron jobs.
-10. `install-cron.sh`, then run `backup-hermes.sh` once by hand (exit 0).
+10. `bash backup/install.sh`, then `bash backup/test.sh` (all PASS).
 11. When satisfied, delete `~/.hermes.pre-restore-*` yourself.
 
 If a restore is interrupted, the script prints which items were already
@@ -440,7 +497,7 @@ it back from the `.pre-restore-*` directory.
 - `state.db`, `kanban.db` and `shared-state.db` are restored in
   rollback-journal mode; Hermes/SQLite can switch them back to WAL on first
   open. Files under `sessions/` are copied as-is and may be a few seconds
-  apart from `state.db` if Hermes is busy at 03:17.
+  apart from `state.db` if Hermes is busy at 03:30.
 - `kanban.db`/`shared-state.db` inclusion is based on Hermes's own published
   docs (Kanban and Bot Mode reference pages) describing them as durable,
   official-core state, not on inspection of a specific install's file

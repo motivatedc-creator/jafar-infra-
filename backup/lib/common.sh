@@ -77,6 +77,10 @@ HB_DISPOSABLE_PATTERNS=(
     '*.sqlite-wal' '*.sqlite-shm' '*.sqlite-journal'
     '*.sqlite3-wal' '*.sqlite3-shm' '*.sqlite3-journal'
     '*.pid' '*.sock'
+    # Hermes' own advisory lock files (MEMORY.md.lock, .usage.json.lock,
+    # cron/.jobs.lock, cron/.tick.lock). Deliberately not a bare '*.lock':
+    # skills may ship real lockfiles such as uv.lock or Cargo.lock.
+    '*.md.lock' '*.json.lock' '.*.lock'
 )
 
 # Top-level entries of a Hermes home that are deliberately NOT backed up.

@@ -17,6 +17,8 @@ All commands run as `dietpi`. `B=~/jafar-infra-/backup` below.
 
 ```bash
 B=~/jafar-infra-/backup
+$B/test.sh                             # LIVE: real backup + restore drill (the plan's test)
+$B/test.sh --sandbox                   # same as the next line
 $B/tests/run-tests.sh                  # prints PASS/FAIL per check, exits non-zero on any FAIL
 KEEP_SANDBOX=1 $B/tests/run-tests.sh   # keep the temp sandbox for inspection
 shellcheck -x $B/*.sh $B/lib/*.sh $B/tests/*.sh   # static checks (apt install shellcheck)
@@ -42,6 +44,8 @@ It never touches `~/.hermes`, `~/.config/hermes-backup` or your remotes.
 | 11 validation | corrupted archive → exit 5 and nothing created; `--require-checksum` without sidecar → 5; path-traversal and absolute-symlink archives → 5 |
 | 12 ops | concurrent run → 75; `--no-upload` → 3; world-writable config → 2; failed upload → 3 with `UPLOAD_FAILED`; local retention; missing config → 2; remote pruning skips invalid archive names |
 | 13 large archive | regression test for a `restore-hermes.sh` validation bug: with a ~6000-file fake home, `restore --inspect` must exit 0, not falsely report a missing `hermes-backup/BACKUP_INFO`/`ITEMS`/`MANIFEST.sha256` |
+| 14 install | `install.sh --dry-run` changes nothing and says `would run`; `install.sh` creates the config (600) and the 03:30 managed cron line, keeps other crontab lines; a second run and a second `--dry-run` say `already done` and leave the crontab byte-identical; `uninstall.sh` (and its `--dry-run`) removes only the managed line. Uses a stub `crontab`; skipped when run as root (the scripts refuse root) |
+| 15 plan restore | `hermes-restore.sh latest` into an empty target; refused without `--force` over existing data (exit 6, nothing changed); `--force` restores and keeps the old copy in `.pre-restore-*`; into the live `~/.hermes` it stops and restarts `hermes-gateway` (stub `systemctl`), also when the restore fails; `--dry-run` never stops the gateway |
 
 rclone tests are skipped (not failed) if rclone is not installed.
 

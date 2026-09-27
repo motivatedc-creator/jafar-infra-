@@ -63,7 +63,7 @@ touch -- "$LOG_FILE" && chmod 600 -- "$LOG_FILE"
 
 WORK_DIR=""
 RUN_STATUS="FAILED"
-# shellcheck disable=SC2317  # EXIT trap invokes this cleanup handler indirectly.
+# shellcheck disable=SC2317,SC2329  # EXIT trap invokes this cleanup handler indirectly.
 on_exit() {
     local rc=$?
     if [[ -n "$WORK_DIR" ]]; then
